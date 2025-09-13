@@ -8,7 +8,7 @@ st.set_page_config(
     layout="wide",
     page_title="Fantasy ACB",
     page_icon="🏀",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # =======================
@@ -40,6 +40,98 @@ df['Precio_Millones'] = df['Precio'].apply(convert_price_to_millions)
 jugadores = dict(zip(df["Nombre"], df["Precio_Millones"]))
 
 # =======================
+# Función para renderizar presupuesto y equipo
+# =======================
+def render_budget_and_team(container, show_theme_toggle=False, container_key=""):
+    """Renderiza presupuesto y equipo en el container especificado"""
+    
+    # Calcular presupuesto
+    total_gastado = sum(
+        jugadores[j] for j in st.session_state.seleccionados.values() if j
+    )
+    presupuesto_restante = presupuesto_inicial - total_gastado
+    
+    # Tema ultra compacto (solo si se solicita)
+    if show_theme_toggle:
+        col1, col2 = container.columns(2)
+        with col1:
+            if container.button("🌙", key=f"dark_btn_{container_key}", use_container_width=True):
+                st.session_state.theme = "dark"
+                st.rerun()
+        with col2:
+            if container.button("☀️", key=f"light_btn_{container_key}", use_container_width=True):
+                st.session_state.theme = "light" 
+                st.rerun()
+    
+    container.write("**💰 Presupuesto**")
+    
+    # Presupuesto compacto en una sola línea
+    progress_pct = min(total_gastado / presupuesto_inicial, 1.0)
+    progress_display = int(progress_pct * 100)
+    
+    # Mostrar solo lo esencial
+    container.write(f"**Gastado:** {total_gastado * 1000000:,.0f}".replace(",", ".") + f" ({progress_display}%)")
+    container.progress(progress_pct)
+    
+    # Presupuesto restante compacto
+    if presupuesto_restante < 0:
+        container.error(f"⚠️ -{abs(presupuesto_restante * 1000000):,.0f}".replace(",", "."))
+    else:
+        container.write(f"**Restante:** {presupuesto_restante * 1000000:,.0f}".replace(",", "."))
+    
+    # Lista de jugadores elegidos
+    container.write("**👥 Tu equipo**")
+    
+    # Crear un diccionario para agrupar jugadores por posición
+    jugadores_por_posicion = {"B": [], "A": [], "P": []}
+    posiciones_nombres = {"B": "● Bases", "A": "■ Aleros", "P": "▲ Pívots"}
+    
+    # Agrupar jugadores seleccionados por posición
+    for ronda, jugador in st.session_state.seleccionados.items():
+        if jugador:
+            # Buscar la posición del jugador
+            posicion = df[df["Nombre"] == jugador]["Posición"].iloc[0]
+            precio_formatted = f"{jugadores[jugador] * 1000000:,.0f}".replace(",", ".")
+            jugadores_por_posicion[posicion].append(f"**{jugador}** - {precio_formatted}")
+    
+    # Mostrar por posición con chips
+    for pos_code, pos_name in posiciones_nombres.items():
+        # Contar jugadores en esta posición
+        count = len(jugadores_por_posicion[pos_code])
+        max_players = {"B": 2, "A": 3, "P": 3}[pos_code]  # Límites ideales por posición
+        
+        # Aplicar color al símbolo de posición
+        symbol_colors = {"● Bases": "● Bases", "■ Aleros": "■ Aleros", "▲ Pívots": "▲ Pívots"}
+        color_classes = {"● Bases": "B", "■ Aleros": "A", "▲ Pívots": "P"}
+        
+        symbol = pos_name[0]  # Obtener el símbolo (●, ■, ▲)
+        text = pos_name[2:]   # Obtener el texto (Bases, Aleros, Pívots)
+        color_class = color_classes[pos_name]
+        
+        container.markdown(
+            f'<span class="position-symbol-{color_class}">{symbol}</span> **{text}:** {count}/{max_players}',
+            unsafe_allow_html=True
+        )
+        
+        if jugadores_por_posicion[pos_code]:
+            for jugador_line in jugadores_por_posicion[pos_code]:
+                # Extraer nombre y precio del string
+                parts = jugador_line.split(" - ")
+                nombre = parts[0].replace("**", "")
+                precio = parts[1] if len(parts) > 1 else ""
+                
+                # Mostrar con chip de posición
+                container.markdown(
+                    f'<span class="chip {pos_code}">{pos_code}</span>{nombre} - {precio}', 
+                    unsafe_allow_html=True
+                )
+        else:
+            container.write("  • _(vacío)_")
+        
+        # Separador sutil
+        container.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+# =======================
 # Presupuesto inicial
 # =======================
 presupuesto_inicial = 5  # 5 millones de euros
@@ -51,6 +143,10 @@ if "presupuesto" not in st.session_state:
 expected_keys = {f"Ronda {i}": None for i in range(1, 9)}
 if "seleccionados" not in st.session_state or set(st.session_state.seleccionados.keys()) != set(expected_keys.keys()):
     st.session_state.seleccionados = expected_keys
+
+# Contador para forzar recreación de widgets cuando se elimina un jugador
+if "widget_counter" not in st.session_state:
+    st.session_state.widget_counter = 0
 
 # Tema de la aplicación
 if "theme" not in st.session_state:
@@ -65,8 +161,13 @@ if st.session_state.theme == "dark":
     # Tema oscuro
     st.markdown("""
     <style>
-    /* Eliminar completamente el header de Streamlit */
-    [data-testid="stHeader"], [data-testid="stToolbar"] { display: none !important; }
+    /* Ocultar header solo en desktop, mostrarlo en móvil para hamburger */
+    @media (min-width: 769px) {
+        [data-testid="stHeader"], [data-testid="stToolbar"] { display: none !important; }
+    }
+    @media (max-width: 768px) {
+        [data-testid="stHeader"], [data-testid="stToolbar"] { display: flex !important; }
+    }
     #MainMenu, footer { display: none !important; }
 
     /* Padding seguro para evitar cortar el título */
@@ -184,8 +285,13 @@ else:
     # Tema claro
     st.markdown("""
     <style>
-    /* Eliminar completamente el header de Streamlit */
-    [data-testid="stHeader"], [data-testid="stToolbar"] { display: none !important; }
+    /* Ocultar header solo en desktop, mostrarlo en móvil para hamburger */
+    @media (min-width: 769px) {
+        [data-testid="stHeader"], [data-testid="stToolbar"] { display: none !important; }
+    }
+    @media (max-width: 768px) {
+        [data-testid="stHeader"], [data-testid="stToolbar"] { display: flex !important; }
+    }
     #MainMenu, footer { display: none !important; }
 
     /* Padding seguro para evitar cortar el título */
@@ -311,148 +417,80 @@ Calculadora The Fantasy Basket ACB
 st.markdown("### 🏆 Arma tu equipo ideal y controla tu presupuesto")
 st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-# Dividir en dos columnas para mejor organización
-col1, col2 = st.columns(2, gap="medium")
-
-# Lista de rondas dividida en dos
-rondas = list(st.session_state.seleccionados.keys())
-rondas_col1 = rondas[:4]  # Ronda 1-4
-rondas_col2 = rondas[4:]  # Ronda 5-8
-
-# Columna izquierda (Rondas 1-4)
-with col1:
-    st.markdown("#### 🎯 Rondas 1-4")
-    for ronda in rondas_col1:
-        cols = st.columns([5, 1])
-        
-        with cols[0]:
-            jugador = st.selectbox(
-                f"{ronda}",
-                options=["(vacío)"] + df["Nombre"].tolist(),
-                index=0 if st.session_state.seleccionados[ronda] is None 
-                else df["Nombre"].tolist().index(st.session_state.seleccionados[ronda]) + 1,
-                key=ronda
-            )
-            if jugador != "(vacío)":
-                st.session_state.seleccionados[ronda] = jugador
-            else:
-                st.session_state.seleccionados[ronda] = None
-
-        with cols[1]:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("❌", key=f"del_{ronda}"):
-                st.session_state.seleccionados[ronda] = None
-                st.rerun()
-
-# Columna derecha (Rondas 5-8)
-with col2:
-    st.markdown("#### 🎯 Rondas 5-8")
-    for ronda in rondas_col2:
-        cols = st.columns([5, 1])
-        
-        with cols[0]:
-            jugador = st.selectbox(
-                f"{ronda}",
-                options=["(vacío)"] + df["Nombre"].tolist(),
-                index=0 if st.session_state.seleccionados[ronda] is None 
-                else df["Nombre"].tolist().index(st.session_state.seleccionados[ronda]) + 1,
-                key=ronda
-            )
-            if jugador != "(vacío)":
-                st.session_state.seleccionados[ronda] = jugador
-            else:
-                st.session_state.seleccionados[ronda] = None
-
-        with cols[1]:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("❌", key=f"del_{ronda}"):
-                st.session_state.seleccionados[ronda] = None
-                st.rerun()
-
 # =======================
-# Calcular presupuesto
+# Tabs principales para móvil
 # =======================
-total_gastado = sum(
-    jugadores[j] for j in st.session_state.seleccionados.values() if j
-)
-presupuesto_restante = presupuesto_inicial - total_gastado
+tab1, tab2 = st.tabs(["🎯 Seleccionar Jugadores", "💰 Presupuesto y Equipo"])
 
-# Tema ultra compacto  
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    if st.button("🌙", key="dark_btn", use_container_width=True):
-        st.session_state.theme = "dark"
-        st.rerun()
-with col2:
-    if st.button("☀️", key="light_btn", use_container_width=True):
-        st.session_state.theme = "light" 
-        st.rerun()
-
-st.sidebar.write("**💰 Presupuesto**")
-
-# Presupuesto compacto en una sola línea
-progress_pct = min(total_gastado / presupuesto_inicial, 1.0)
-progress_display = int(progress_pct * 100)
-
-# Mostrar solo lo esencial
-st.sidebar.write(f"**Gastado:** {total_gastado * 1000000:,.0f}".replace(",", ".") + f" ({progress_display}%)")
-st.sidebar.progress(progress_pct)
-
-# Presupuesto restante compacto
-if presupuesto_restante < 0:
-    st.sidebar.error(f"⚠️ -{abs(presupuesto_restante * 1000000):,.0f}".replace(",", "."))
-else:
-    st.sidebar.write(f"**Restante:** {presupuesto_restante * 1000000:,.0f}".replace(",", "."))
-
-# Lista de jugadores elegidos - SIDEBAR  
-st.sidebar.write("**👥 Tu equipo**")
-
-# Crear un diccionario para agrupar jugadores por posición
-jugadores_por_posicion = {"B": [], "A": [], "P": []}
-posiciones_nombres = {"B": "● Bases", "A": "■ Aleros", "P": "▲ Pívots"}
-
-# Agrupar jugadores seleccionados por posición
-for ronda, jugador in st.session_state.seleccionados.items():
-    if jugador:
-        # Buscar la posición del jugador
-        posicion = df[df["Nombre"] == jugador]["Posición"].iloc[0]
-        precio_formatted = f"{jugadores[jugador] * 1000000:,.0f}".replace(",", ".")
-        jugadores_por_posicion[posicion].append(f"**{jugador}** - {precio_formatted}")
-
-# Mostrar por posición en el sidebar con chips
-for pos_code, pos_name in posiciones_nombres.items():
-    # Contar jugadores en esta posición
-    count = len(jugadores_por_posicion[pos_code])
-    max_players = {"B": 2, "A": 3, "P": 3}[pos_code]  # Límites ideales por posición
+with tab1:
+    # Dividir en dos columnas para mejor organización
+    col1, col2 = st.columns(2, gap="medium")
     
-    # Aplicar color al símbolo de posición
-    symbol_colors = {"● Bases": "● Bases", "■ Aleros": "■ Aleros", "▲ Pívots": "▲ Pívots"}
-    color_classes = {"● Bases": "B", "■ Aleros": "A", "▲ Pívots": "P"}
+    # Lista de rondas dividida en dos
+    rondas = list(st.session_state.seleccionados.keys())
+    rondas_col1 = rondas[:4]  # Ronda 1-4
+    rondas_col2 = rondas[4:]  # Ronda 5-8
     
-    symbol = pos_name[0]  # Obtener el símbolo (●, ■, ▲)
-    text = pos_name[2:]   # Obtener el texto (Bases, Aleros, Pívots)
-    color_class = color_classes[pos_name]
-    
-    st.sidebar.markdown(
-        f'<span class="position-symbol-{color_class}">{symbol}</span> **{text}:** {count}/{max_players}',
-        unsafe_allow_html=True
-    )
-    
-    if jugadores_por_posicion[pos_code]:
-        for jugador_line in jugadores_por_posicion[pos_code]:
-            # Extraer nombre y precio del string
-            parts = jugador_line.split(" - ")
-            nombre = parts[0].replace("**", "")
-            precio = parts[1] if len(parts) > 1 else ""
+    # Columna izquierda (Rondas 1-4)
+    with col1:
+        st.markdown("#### 🎯 Rondas 1-4")
+        for ronda in rondas_col1:
+            cols = st.columns([5, 1])
             
-            # Mostrar con chip de posición
-            st.sidebar.markdown(
-                f'<span class="chip {pos_code}">{pos_code}</span>{nombre} - {precio}', 
-                unsafe_allow_html=True
-            )
-    else:
-        st.sidebar.write("  • _(vacío)_")
+            with cols[0]:
+                jugador = st.selectbox(
+                    f"{ronda}",
+                    options=["(vacío)"] + df["Nombre"].tolist(),
+                    index=0 if st.session_state.seleccionados[ronda] is None 
+                    else df["Nombre"].tolist().index(st.session_state.seleccionados[ronda]) + 1,
+                    key=f"{ronda}_{st.session_state.widget_counter}"
+                )
+                if jugador != "(vacío)":
+                    st.session_state.seleccionados[ronda] = jugador
+                else:
+                    st.session_state.seleccionados[ronda] = None
     
-    # Separador sutil
-    st.sidebar.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+            with cols[1]:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("❌", key=f"del_{ronda}_{st.session_state.widget_counter}"):
+                    st.session_state.seleccionados[ronda] = None
+                    # Incrementar contador para forzar recreación de widgets
+                    st.session_state.widget_counter += 1
+                    st.rerun()
+    
+    # Columna derecha (Rondas 5-8)
+    with col2:
+        st.markdown("#### 🎯 Rondas 5-8")
+        for ronda in rondas_col2:
+            cols = st.columns([5, 1])
+            
+            with cols[0]:
+                jugador = st.selectbox(
+                    f"{ronda}",
+                    options=["(vacío)"] + df["Nombre"].tolist(),
+                    index=0 if st.session_state.seleccionados[ronda] is None 
+                    else df["Nombre"].tolist().index(st.session_state.seleccionados[ronda]) + 1,
+                    key=f"{ronda}_{st.session_state.widget_counter}"
+                )
+                if jugador != "(vacío)":
+                    st.session_state.seleccionados[ronda] = jugador
+                else:
+                    st.session_state.seleccionados[ronda] = None
+    
+            with cols[1]:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("❌", key=f"del_{ronda}_{st.session_state.widget_counter}"):
+                    st.session_state.seleccionados[ronda] = None
+                    # Incrementar contador para forzar recreación de widgets
+                    st.session_state.widget_counter += 1
+                    st.rerun()
+
+with tab2:
+    # Usar la función para renderizar presupuesto y equipo con toggle de tema
+    render_budget_and_team(st, show_theme_toggle=True, container_key="main")
+
+# =======================
+# Sidebar (Desktop) - usar función reutilizable
+# =======================
+render_budget_and_team(st.sidebar, show_theme_toggle=True, container_key="sidebar")
 
