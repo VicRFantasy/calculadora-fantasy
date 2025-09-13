@@ -1,85 +1,68 @@
 import streamlit as st
+import pandas as pd
 
-# --- Configuración de la página ---
-st.set_page_config(page_title="Calculadora Draft Fantasy", layout="wide")
+# =======================
+# Cargar jugadores desde Excel
+# =======================
+df = pd.read_excel("jugadores.xlsx")  # asegúrate que está en la misma carpeta que app.py
+jugadores = dict(zip(df["Nombre"], df["Precio"]))
 
-# --- Presupuesto inicial ---
-PRESUPUESTO_INICIAL = 100
-if "restante" not in st.session_state:
-    st.session_state.restante = PRESUPUESTO_INICIAL
+# =======================
+# Presupuesto inicial
+# =======================
+presupuesto_inicial = 100
 
-# --- Jugadores y precios ---
-jugadores = {
-    "Jugador A": 25,
-    "Jugador B": 18,
-    "Jugador C": 12,
-    "Jugador D": 30,
-    "Jugador E": 15,
-    "Jugador F": 20,
-    "Jugador G": 10,
-    "Jugador H": 22
-}
+if "presupuesto" not in st.session_state:
+    st.session_state.presupuesto = presupuesto_inicial
+    st.session_state.seleccionados = {f"Ronda {i}": None for i in range(1, 9)}
 
-# --- Función para color según precio ---
-def color_precio(precio):
-    if precio <= 15:
-        return "lightgreen"
-    elif precio <= 22:
-        return "lightsalmon"
-    else:
-        return "lightcoral"
+# =======================
+# Mostrar interfaz
+# =======================
+st.title("📊 Calculadora Fantasy ACB")
+st.write("Selecciona tus jugadores y controla tu presupuesto.")
 
-# --- Título ---
-st.title("📝 Calculadora Draft Fantasy")
-st.markdown("Selecciona tus jugadores por ronda y observa tu presupuesto en tiempo real.")
+for ronda in st.session_state.seleccionados.keys():
+    cols = st.columns([4, 1])  # desplegable (4) + botón ❌ (1)
 
-# --- Layout de columnas ---
-col1, col2 = st.columns([2, 1])
-
-# --- Columna izquierda: selectboxes por ronda ---
-selecciones = []
-with col1:
-    st.subheader("Rondas")
-    for i in range(1, 9):
-        seleccion = st.selectbox(
-            f"Ronda {i}",
-            options=["-- Sin jugador --"] + list(jugadores.keys()),
-            key=f"ronda{i}"
+    with cols[0]:
+        jugador = st.selectbox(
+            f"{ronda}",
+            options=["(vacío)"] + df["Nombre"].tolist(),
+            index=0 if st.session_state.seleccionados[ronda] is None 
+            else df["Nombre"].tolist().index(st.session_state.seleccionados[ronda]) + 1,
+            key=ronda
         )
-        selecciones.append(seleccion)
+        if jugador != "(vacío)":
+            st.session_state.seleccionados[ronda] = jugador
+        else:
+            st.session_state.seleccionados[ronda] = None
 
-# --- Columna derecha: presupuesto ---
-with col2:
-    st.subheader("💰 Presupuesto")
-    gasto = sum(jugadores[s] for s in selecciones if s in jugadores)
-    restante = PRESUPUESTO_INICIAL - gasto
-    st.metric("Presupuesto inicial", f"{PRESUPUESTO_INICIAL} M")
-    st.metric("Gasto total", f"{gasto} M")
-    st.metric("Presupuesto restante", f"{restante} M")
-    if restante < 0:
-        st.error("⚠️ Te has pasado del presupuesto")
+    with cols[1]:
+        if st.button("❌", key=f"del_{ronda}"):
+            st.session_state.seleccionados[ronda] = None
+            st.rerun()
 
-# --- Draft board visual ---
-st.subheader("📊 Jugadores seleccionados")
-jug_elegidos = [s for s in selecciones if s != "-- Sin jugador --"]
-if jug_elegidos:
-    # Crear filas de tarjetas
-    for s in jug_elegidos:
-        precio = jugadores[s]
-        st.markdown(f"""
-        <div style="
-            display: inline-block;
-            background-color: {color_precio(precio)};
-            padding: 15px;
-            margin: 5px;
-            border-radius: 10px;
-            min-width: 120px;
-            text-align: center;
-            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-        ">
-            <strong>{s}</strong><br>
-            {precio} M
-        </div>
-        """, unsafe_allow_html=True)
-else:
-    st.write("Ninguno seleccionado")
+# =======================
+# Calcular presupuesto
+# =======================
+total_gastado = sum(
+    jugadores[j] for j in st.session_state.seleccionados.values() if j
+)
+presupuesto_restante = presupuesto_inicial - total_gastado
+
+st.sidebar.header("💰 Presupuesto")
+st.sidebar.metric("Presupuesto inicial", f"{presupuesto_inicial}M")
+st.sidebar.metric("Gastado", f"{total_gastado}M")
+st.sidebar.metric("Restante", f"{presupuesto_restante}M")
+
+# =======================
+# Lista de jugadores elegidos
+# =======================
+st.subheader("👥 Tu equipo")
+for ronda, jugador in st.session_state.seleccionados.items():
+    if jugador:
+        st.write(f"{ronda}: **{jugador}** - {jugadores[jugador]}M")
+    else:
+        st.write(f"{ronda}: _(vacío)_")
+
