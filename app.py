@@ -124,24 +124,15 @@ st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 # =======================
 # Layout adaptativo
 # =======================
-is_mobile = st.experimental_get_query_params().get("mobile", ["false"])[0] == "true"
+# Sustitución de experimental por el nuevo API
+is_mobile = st.query_params.get("mobile", ["false"])[0] == "true"
 
 if is_mobile:
     # En móvil → tabs
     tab1, tab2 = st.tabs(["🎯 Seleccionar Jugadores", "💰 Presupuesto y Equipo"])
     with tab1:
-        col1, col2 = st.columns(2, gap="medium")
         rondas = list(st.session_state.seleccionados.keys())
-        rondas_col1, rondas_col2 = rondas[:4], rondas[4:]
-        for ronda in rondas_col1:
-            jugador = st.selectbox(
-                f"{ronda}",
-                options=["(vacío)"] + df["Nombre"].tolist(),
-                index=0 if st.session_state.seleccionados[ronda] is None else df["Nombre"].tolist().index(st.session_state.seleccionados[ronda]) + 1,
-                key=f"{ronda}_{st.session_state.widget_counter}"
-            )
-            st.session_state.seleccionados[ronda] = None if jugador == "(vacío)" else jugador
-        for ronda in rondas_col2:
+        for ronda in rondas:
             jugador = st.selectbox(
                 f"{ronda}",
                 options=["(vacío)"] + df["Nombre"].tolist(),
@@ -153,17 +144,16 @@ if is_mobile:
         render_budget_and_team(st, show_theme_toggle=True, container_key="main")
 
 else:
-    # En desktop → dos columnas: izquierda presupuesto, derecha jugadores
-    col_left, col_right = st.columns([1, 2], gap="large")
+    # En desktop → dos columnas: izquierda estrecha con presupuesto, derecha con jugadores
+    col_left, col_right = st.columns([1, 4], gap="large")
     with col_left:
         render_budget_and_team(st, show_theme_toggle=True, container_key="desktop")
     with col_right:
         st.markdown("### 🎯 Selección de Jugadores")
-        col1, col2 = st.columns(2, gap="medium")
         rondas = list(st.session_state.seleccionados.keys())
-        rondas_col1, rondas_col2 = rondas[:4], rondas[4:]
+        col1, col2 = st.columns(2, gap="medium")
         with col1:
-            for ronda in rondas_col1:
+            for ronda in rondas[:4]:
                 jugador = st.selectbox(
                     f"{ronda}",
                     options=["(vacío)"] + df["Nombre"].tolist(),
@@ -172,7 +162,7 @@ else:
                 )
                 st.session_state.seleccionados[ronda] = None if jugador == "(vacío)" else jugador
         with col2:
-            for ronda in rondas_col2:
+            for ronda in rondas[4:]:
                 jugador = st.selectbox(
                     f"{ronda}",
                     options=["(vacío)"] + df["Nombre"].tolist(),
@@ -180,3 +170,4 @@ else:
                     key=f"{ronda}_{st.session_state.widget_counter}"
                 )
                 st.session_state.seleccionados[ronda] = None if jugador == "(vacío)" else jugador
+
