@@ -69,7 +69,7 @@ posicion_map = dict(zip(df['Nombre'], df['Posición']))
 # =======================
 # Estado inicial
 # =======================
-presupuesto_inicial = 5.0  # millones
+presupuesto_inicial = 100.0  # millones
 if "seleccionados" not in st.session_state:
     st.session_state.seleccionados = {f"Ronda {i}": None for i in range(1, 9)}
 if "widget_counter" not in st.session_state:
@@ -136,7 +136,7 @@ def render_budget_and_team(container, show_theme_toggle=False, container_key="")
         sel = container.selectbox("Tema", ["dark", "light"], index=0 if st.session_state.theme=="dark" else 1, key=f"theme_sel_{container_key}")
         if sel != st.session_state.theme:
             st.session_state.theme = sel
-            st.experimental_rerun()
+            st.rerun()
 
     total_gastado = sum(price_mill.get(j, 0.0) for j in st.session_state.seleccionados.values() if j)
     restante = presupuesto_inicial - total_gastado
@@ -193,11 +193,6 @@ st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 # LAYOUT: Desktop (izq=presupuesto, der=selects) y Mobile (expander + selects)
 # =======================
 
-# Mobile: expander con presupuesto (visible solo en móvil gracias al CSS)
-st.markdown('<div class="mobile-only">', unsafe_allow_html=True)
-with st.expander("💰 Presupuesto y Equipo (abrir/cerrar)", expanded=False):
-    render_budget_and_team(st, show_theme_toggle=True, container_key="mobile")
-st.markdown('</div>', unsafe_allow_html=True)
 
 # Desktop layout: left narrow panel (presupuesto), right wide (selects)
 col_left, col_right = st.columns([1, 3], gap="large")
@@ -218,45 +213,30 @@ with col_right:
         key_sel = f"sel_{ronda}"
         key_del = f"del_{ronda}_{st.session_state.widget_counter}"
         with cols[0]:
-            idx = safe_index_of(st.session_state.seleccionados.get(ronda), names)
+            # Get the current selection from session state
+            current_selection = st.session_state.seleccionados.get(ronda)
+            idx = safe_index_of(current_selection, names)
             jugador = st.selectbox(
                 f"{ronda}",
                 options=["(vacío)"] + names,
                 index=idx,
                 key=key_sel
             )
-            st.session_state.seleccionados[ronda] = None if jugador == "(vacío)" else jugador
+            # Check if the selection has changed and update immediately
+            new_selection = None if jugador == "(vacío)" else jugador
+            if new_selection != current_selection:
+                st.session_state.seleccionados[ronda] = new_selection
+                st.rerun()
         with cols[1]:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("❌", key=key_del):
                 st.session_state.seleccionados[ronda] = None
                 st.session_state.widget_counter += 1
-                st.experimental_rerun()
+                st.rerun()
 
     for r in rondas[:4]:
         render_ronda_widget(right_col1, r)
     for r in rondas[4:]:
         render_ronda_widget(right_col2, r)
 
-# Mobile: también mostrar los selectboxes (apilados), visible solo en móvil
-st.markdown('<div class="mobile-only">', unsafe_allow_html=True)
-st.markdown("### 🎯 Selección de Jugadores")
-names = df["Nombre"].tolist()
-for ronda in list(st.session_state.seleccionados.keys()):
-    cols = st.columns([5, 1])
-    with cols[0]:
-        idx = safe_index_of(st.session_state.seleccionados.get(ronda), names)
-        jugador = st.selectbox(
-            f"{ronda}",
-            options=["(vacío)"] + names,
-            index=idx,
-            key=f"sel_mobile_{ronda}_{st.session_state.widget_counter}"
-        )
-        st.session_state.seleccionados[ronda] = None if jugador == "(vacío)" else jugador
-    with cols[1]:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("❌", key=f"del_mobile_{ronda}_{st.session_state.widget_counter}"):
-            st.session_state.seleccionados[ronda] = None
-            st.session_state.widget_counter += 1
-            st.experimental_rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+
