@@ -23,14 +23,14 @@ def parse_price_to_euros(val):
     if pd.isna(val):
         return 0
     if isinstance(val, (int, float)):
-        # Si viene un número grande en euros -> directo
+        # Si viene un número -> analizamos el rango
         try:
             v = float(val)
-            if v > 10000:  # euros completos
+            if v > 100000:  # probablemente ya en euros completos
                 return int(round(v))
             else:
-                # Si es un número pequeño, asumimos que está en millones
-                return int(round(v * 1_000_000))
+                # números pequeños están en miles de euros (950 = 950,000€)
+                return int(round(v * 1000))
         except:
             return 0
     s = str(val).strip()
@@ -55,11 +55,11 @@ def parse_price_to_euros(val):
         euros = float(s)
     except:
         return 0
-    # si la cifra es grande (>10000) tratamos como euros completos
-    if euros > 10000:
+    # si la cifra es grande (>100000) tratamos como euros completos
+    if euros > 100000:
         return int(round(euros))
-    # si no, asumimos que está en millones y convertimos
-    return int(round(euros * 1_000_000))
+    # si no, asumimos que está en miles y convertimos (950 = 950,000€)
+    return int(round(euros * 1000))
 
 df['Precio_Euros'] = df['Precio'].apply(parse_price_to_euros)
 
@@ -88,12 +88,21 @@ if st.session_state.theme == "dark":
     divider_color = "rgba(255,255,255,0.1)"
     progress_bg = "#1a1a1a"
     progress_border = "rgba(255,255,255,0.1)"
+    ronda_label_color = "#ffffff"
 else:
     bg_color = "#ffffff"
     text_color = "#000000"
     divider_color = "rgba(0,0,0,0.08)"
     progress_bg = "#e6f4ff"
     progress_border = "rgba(96,165,250,0.15)"
+    ronda_label_color = "#000000"
+
+# Intentamos crear reglas específicas para Ronda 1..8 (si existen aria-labels),
+# y también añadimos un fallback que colorea los labels de TODOS los selectboxes.
+css_rondas_specific = "\n".join([
+    f'div[data-testid="stSelectbox"][aria-label="Ronda {i}"] label {{ color: {ronda_label_color} !important; font-weight: 600; }}'
+    for i in range(1, 9)
+])
 
 st.markdown(f"""
 <style>
@@ -110,12 +119,42 @@ st.markdown(f"""
   .stSelectbox{{margin-bottom: 0.5rem !important;}}
 }}
 
+/* Fix white spaces and background consistency */
+html, body, #root, .stApp, [data-testid="stAppViewContainer"], 
+[data-testid="stHeader"], [data-testid="stToolbar"], 
+.main, .main .block-container {{
+    background-color: {bg_color} !important;
+    color: {text_color} !important;
+}}
+
+/* Hide Streamlit's default header and toolbar to remove fixed menu */
+[data-testid="stHeader"], 
+[data-testid="stToolbar"],
+header[data-testid="stHeader"] {{
+    display: none !important;
+    visibility: hidden !important;
+}}
+
+/* Remove top padding that was compensating for the header */
+.main .block-container {{
+    padding-top: 1rem !important;
+}}
+
 /* Tema dinámico - aplicar al contenedor principal */
 .stApp, [data-testid="stAppViewContainer"] {{
     background-color: {bg_color} !important;
     color: {text_color} !important;
 }}
 .main-bg{{background-color: {bg_color}; color: {text_color};}}
+
+/* Selectbox label styling for rounds */
+{css_rondas_specific}
+
+/* Fallback for all selectbox labels */
+.stSelectbox label {{
+    color: {ronda_label_color} !important;
+    font-weight: 600 !important;
+}}
 
 /* Divider */
 .divider{{height:1px;background:linear-gradient(90deg,transparent,{divider_color},transparent);margin:10px 0}}
@@ -133,10 +172,43 @@ st.markdown(f"""
 .progress-wrap{{width:100%;background:{progress_bg};border-radius:10px;height:14px;overflow:hidden;border:1px solid {progress_border}}}
 .progress-inner{{height:100%;background:#ef4444;width:0%;transition:width .3s ease}}
 
-/* Adaptaciones móviles */
+/* Simple button styling for delete buttons */
+.stButton > button {{
+    height: 2.25rem !important;
+    padding: 0.25rem 0.5rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}}
+
+/* Reduce spacing between selectboxes */
+.stSelectbox {{
+    margin-bottom: 0.5rem !important;
+}}
+
+/* Compact column spacing without breaking title */
+div[data-testid="column"] > div {{
+    gap: 0.5rem !important;
+}}
+
+/* Mobile optimizations */
+@media (max-width: 768px){{
+  .stSelectbox {{
+    margin-bottom: 0.25rem !important;
+  }}
+  
+  div[data-testid="column"] > div {{
+    gap: 0.25rem !important;
+  }}
+}}
+
 @media (max-width: 480px){{
   .chip{{min-width:22px;padding:2px 6px;font-size:10px}}
   .player-line{{gap:8px}}
+  
+  .stSelectbox {{
+    margin-bottom: 0.125rem !important;
+  }}
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -237,6 +309,14 @@ with col_right:
     rondas = list(st.session_state.seleccionados.keys())
     names = df["Nombre"].tolist()
 
+    def handle_selection_change(ronda):
+        """Handle immediate selection changes for player dropdowns"""
+        key_sel = f"sel_{ronda}_{st.session_state.widget_counter}"
+        if key_sel in st.session_state:
+            selected_value = st.session_state[key_sel]
+            new_selection = None if selected_value == "(vacío)" else selected_value
+            st.session_state.seleccionados[ronda] = new_selection
+
     def render_ronda_widget(parent, ronda):
         cols = parent.columns([5, 1])
         key_sel = f"sel_{ronda}_{st.session_state.widget_counter}"
@@ -249,29 +329,29 @@ with col_right:
                 f"{ronda}",
                 options=["(vacío)"] + names,
                 index=idx,
-                key=key_sel
+                key=key_sel,
+                on_change=lambda ronda=ronda: handle_selection_change(ronda)
             )
-            # Always update selection immediately
+            # Update selection immediately when changed
             new_selection = None if jugador == "(vacío)" else jugador
-            st.session_state.seleccionados[ronda] = new_selection
+            if st.session_state.seleccionados[ronda] != new_selection:
+                st.session_state.seleccionados[ronda] = new_selection
         with cols[1]:
-            # Perfect X button alignment with CSS targeting
-            st.markdown("""<style>
-                div[data-testid="column"] > div > div > div > button {
-                    height: 2.4rem !important;
-                    margin-top: 0.2rem !important;
-                    padding: 0.25rem 0.5rem !important;
-                }
-            </style>""", unsafe_allow_html=True)
+            # Simple approach - use CSS to align button
+            st.markdown('<div style="padding-top: 1.7rem;">', unsafe_allow_html=True)
             if st.button("❌", key=key_del):
                 st.session_state.seleccionados[ronda] = None
                 st.session_state.widget_counter += 1
                 st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
     for r in rondas[:4]:
         render_ronda_widget(right_col1, r)
     for r in rondas[4:]:
         render_ronda_widget(right_col2, r)
+
+
+
 
 
 
